@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI 수업 설계 진단</title>
+<meta name="description" content="지도안을 올리면 AI가 8개 점검 항목별로 점수, 근거, 개선 제안을 정리합니다.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@700;900&display=swap">
+<style>
+/* Layout: 왼쪽 지도안 입력 패널 + 오른쪽 진단표(단계별 색 띠), 좁은 화면에서는 위아래로 쌓임 */
+:root {
+  --bg: #f3f5f9;
+  --surface: #ffffff;
+  --sunken: #eef1f6;
+  --ink: #151d2b;
+  --muted: #5a6577;
+  --line: #dce2eb;
+  --accent: #2443c4;
+  --accent-ink: #ffffff;
+  --accent-soft: #e7ecfc;
+  --s1: #2f5fd0; --s1-soft: #e8eefc;
+  --s2: #0f8564; --s2-soft: #e3f5ee;
+  --s3: #7a44c8; --s3-soft: #f1eafb;
+  --s4: #b0640a; --s4-soft: #fbf0e1;
+  --good: #137a4e; --good-soft: #e1f4ea;
+  --warn: #a86400; --warn-soft: #fcf1dc;
+  --bad: #c03636; --bad-soft: #fbe6e6;
+  --star: #f0a400;
+  --star-off: #cdd4df;
+  --font-display: "Noto Serif KR", "Nanum Myeongjo", Georgia, serif;
+  --font-body: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e131b; --surface: #161d28; --sunken: #111823; --ink: #e5eaf2; --muted: #99a4b5; --line: #29323f;
+    --accent: #8aa2ff; --accent-ink: #0e131b; --accent-soft: #1d2747;
+    --s1: #82a6ff; --s1-soft: #1a2643; --s2: #4fd1a5; --s2-soft: #12302a;
+    --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f;
+    --good: #5ad19a; --good-soft: #143223; --warn: #f2b158; --warn-soft: #35270f; --bad: #ff8a8a; --bad-soft: #3a1a1c;
+    --star: #f5b72b; --star-off: #3a4453;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e131b; --surface: #161d28; --sunken: #111823; --ink: #e5eaf2; --muted: #99a4b5; --line: #29323f;
+  --accent: #8aa2ff; --accent-ink: #0e131b; --accent-soft: #1d2747;
+  --s1: #82a6ff; --s1-soft: #1a2643; --s2: #4fd1a5; --s2-soft: #12302a;
+  --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f;
+  --good: #5ad19a; --good-soft: #143223; --warn: #f2b158; --warn-soft: #35270f; --bad: #ff8a8a; --bad-soft: #3a1a1c;
+  --star: #f5b72b; --star-off: #3a4453;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  word-break: keep-all; overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header.top { border-bottom: 1px solid var(--line); background: var(--surface); }
+header.top .wrap { padding-block: 22px 18px; display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.brand h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(22px, 3.2vw, 30px); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.brand p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.stage-key { display: flex; flex-wrap: wrap; gap: 6px; }
+.stage-key span { font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 999px; }
+
+main.wrap { padding-block: 24px 48px; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1000px) { main.wrap { grid-template-columns: 380px minmax(0, 1fr); align-items: start; } .input-panel { position: sticky; top: calc(16px + env(safe-area-inset-top, 0px)); } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.input-panel { padding: 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel-title { font-family: var(--font-display); font-weight: 700; font-size: 18px; margin: 0; }
+.label { font-size: 13px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 6px; }
+
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 20px 14px; cursor: pointer;
+  background: var(--sunken); transition: border-color .15s, background .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { font-size: 15px; }
+.drop small { color: var(--muted); font-size: 12.5px; }
+.drop svg { width: 28px; height: 28px; color: var(--accent); }
+.file-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); min-width: 0; }
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.file-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 4px; flex: none; }
+
+textarea, input[type=text] {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  padding: 10px 12px; font-size: 14px; line-height: 1.55;
+}
+textarea#plan-text { min-height: 190px; resize: vertical; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.hint.err { color: var(--bad); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 8px; padding: 11px 16px; font-weight: 700; font-size: 15px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { padding: 7px 12px; font-size: 13px; font-weight: 500; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row .btn.primary { flex: 1; }
+.linklike { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+
+.status { font-size: 13.5px; padding: 10px 12px; border-radius: 8px; background: var(--sunken); color: var(--muted); display: flex; gap: 10px; align-items: center; }
+.status.err { background: var(--bad-soft); color: var(--bad); }
+.spinner { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Results */
+.results { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.example-banner { font-size: 13.5px; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.overview { padding: 22px; display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 700px) { .overview { grid-template-columns: minmax(0, 1fr) 220px; } }
+.lesson-meta .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--muted); }
+.lesson-meta h2 { font-family: var(--font-display); font-weight: 700; font-size: clamp(20px, 2.6vw, 26px); margin: 4px 0 8px; text-wrap: balance; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); }
+.chip.tool { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+.overall-text { margin: 14px 0 0; font-size: 14.5px; max-width: 65ch; }
+
+.score-box { border-left: 1px solid var(--line); padding-left: 20px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+@media (max-width: 699px) { .score-box { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 16px; } }
+.score-box .lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+.score-num { font-family: var(--font-display); font-weight: 900; font-size: 52px; line-height: 1; font-variant-numeric: tabular-nums; }
+.score-num small { font-family: var(--font-body); font-size: 16px; font-weight: 500; color: var(--muted); }
+.grade { align-self: flex-start; font-size: 12.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-top: 6px; }
+.grade.g4 { background: var(--good-soft); color: var(--good); }
+.grade.g3 { background: var(--accent-soft); color: var(--accent); }
+.grade.g2 { background: var(--warn-soft); color: var(--warn); }
+.grade.g1 { background: var(--bad-soft); color: var(--bad); }
+.adjusted-note { font-size: 12px; color: var(--muted); }
+
+.stages { grid-column: 1 / -1; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) { .stages { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.stage-tile { padding: 12px; border-radius: 8px; background: var(--sunken); display: flex; flex-direction: column; gap: 8px; }
+.stage-tile .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.stage-tile .name { font-size: 12.5px; font-weight: 700; }
+.stage-tile .val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; }
+
+.two-lists { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 760px) { .two-lists { grid-template-columns: 1fr 1fr; } }
+.list-card { padding: 18px 20px; }
+.list-card h3 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.list-card h3 .dot { width: 8px; height: 8px; border-radius: 50%; }
+.list-card ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+
+.stage-section { overflow: hidden; }
+.stage-head { padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.stage-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+.stage-head .tag { font-size: 11.5px; font-weight: 700; color: #fff; padding: 2px 9px; border-radius: 999px; }
+.stage-head .focus { font-size: 12.5px; color: var(--muted); }
+.item { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.item + .item { border-top: 1px solid var(--line); }
+.item-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 16px; }
+.item-q { min-width: 0; flex: 1 1 360px; }
+.item-q .crit { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 4px; margin-right: 6px; }
+.item-q h4 { margin: 6px 0 0; font-size: 15px; font-weight: 700; line-height: 1.5; }
+.rate { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+@media (max-width: 560px) { .rate { align-items: flex-start; } }
+.stars { display: flex; gap: 2px; }
+.stars button { border: 0; background: none; padding: 2px; cursor: pointer; line-height: 0; color: var(--star-off); }
+.stars button.on { color: var(--star); }
+.stars button svg { width: 22px; height: 22px; }
+.rate .rlabel { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rate .rlabel b { color: var(--ink); }
+.evidence { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--sunken); border-radius: 0 6px 6px 0; font-size: 13.5px; color: var(--muted); }
+.evidence.none { font-style: normal; color: var(--bad); border-left-color: var(--bad); background: var(--bad-soft); }
+.kv { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 10px; font-size: 14px; }
+.kv dt { color: var(--muted); font-size: 12.5px; font-weight: 700; padding-top: 2px; }
+.kv dd { margin: 0; }
+
+.actions { padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.actions .note { font-size: 12.5px; color: var(--muted); }
+#copy-fallback { width: 100%; min-height: 140px; font-size: 12.5px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
+footer.foot { color: var(--muted); font-size: 12.5px; }
+footer.foot .wrap { padding-block: 0 32px; }
+@media print {
+  .input-panel, .actions, header.top .stage-key, .example-banner { display: none !important; }
+  main.wrap { display: block; }
+  body { background: #fff; }
+  .panel { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>AI 수업 설계 진단</h1>
+      <p>지도안을 올리면 AI가 8개 점검 항목별로 점수, 근거, 개선 제안을 정리합니다.</p>
+    </div>
+    <div class="stage-key" aria-label="점검 단계">
+      <span style="background:var(--s1-soft);color:var(--s1)">도입 · 3항목</span>
+      <span style="background:var(--s2-soft);color:var(--s2)">전개1 · 2항목</span>
+      <span style="background:var(--s3-soft);color:var(--s3)">전개2 · 1항목</span>
+      <span style="background:var(--s4-soft);color:var(--s4)">전개3 · 2항목</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel input-panel" aria-labelledby="in-title">
+    <h2 class="panel-title" id="in-title">지도안 올리기</h2>
+
+    <div>
+      <label class="drop" id="drop" for="file-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 13 3-3 3 3"/></svg>
+        <strong>파일을 끌어다 놓거나 눌러서 선택</strong>
+        <small id="accept-hint">PDF · Word(.docx) · 한글(.hwpx) · 텍스트 · 사진</small>
+      </label>
+      <input type="file" id="file-input" hidden accept=".pdf,.docx,.hwpx,.hwp,.txt,.md,.png,.jpg,.jpeg,.webp">
+      <div id="file-chip" class="file-chip" hidden style="margin-top:8px"><span id="file-name"></span><button type="button" id="file-clear" aria-label="파일 지우기">✕</button></div>
+      <p class="hint" id="file-hint">.hwp 파일은 한글에서 PDF나 .hwpx로 저장한 뒤 올려 주세요.</p>
+    </div>
+
+    <div>
+      <label class="label" for="plan-text">지도안 내용 (Word·한글·텍스트 파일은 여기에 내용이 표시되며, 직접 붙여넣거나 고칠 수 있습니다)</label>
+      <textarea id="plan-text" placeholder="지도안 전체 내용을 붙여넣으세요. 학습목표, 성취기준, 교수·학습 활동, 평가 계획, 활용 도구가 들어 있으면 더 정확하게 분석합니다."></textarea>
+      <p class="hint" id="text-count">0자</p>
+    </div>
+
+    <div class="row2">
+      <div><label class="label" for="ctx-grade">학교급·학년 (선택)</label><input type="text" id="ctx-grade" placeholder="예: 중학교 2학년"></div>
+      <div><label class="label" for="ctx-subject">교과 (선택)</label><input type="text" id="ctx-subject" placeholder="예: 과학"></div>
+    </div>
+    <div><label class="label" for="ctx-note">특히 봐 줬으면 하는 점 (선택)</label><input type="text" id="ctx-note" placeholder="예: 느린 학습자 지원이 충분한지"></div>
+
+    <div id="code-wrap" hidden><label class="label" for="ctx-code">접속 코드</label><input type="text" id="ctx-code" autocomplete="off" placeholder="연수 담당자에게 받은 코드"></div>
+
+    <div class="btn-row">
+      <button type="button" class="btn primary" id="btn-analyze">AI 분석 시작</button>
+      <button type="button" class="btn" id="btn-stop" hidden>중지</button>
+    </div>
+    <div id="status" class="status" hidden></div>
+    <p class="hint" style="margin:0">분석에는 30초~1분 정도 걸립니다. 지도안은 분석을 위해 Google Gemini로 보내지고 이 사이트에는 저장되지 않습니다. 학생 이름 같은 개인정보는 빼고 올려 주세요. <button type="button" class="linklike" id="btn-sample">예시 지도안 넣기</button></p>
+  </section>
+
+  <section class="results" id="results" aria-live="polite"></section>
+</main>
+
+<footer class="foot"><div class="wrap">점검 항목은 「AI 활용 수업 설계 자가 진단」 체크리스트(도입·전개1·전개2·전개3, 8개 항목)를 따릅니다. AI 판단은 참고용이며, 별점을 눌러 선생님의 판단으로 고칠 수 있습니다.</div></footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
