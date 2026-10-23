@@ -26,7 +26,7 @@ wrangler.jsonc     Cloudflare Workers 설정
    - `ACCESS_CODE` (Type: **Secret**, 선택): 연수 참여자에게만 알려 줄 접속 코드. 넣으면 화면에 접속 코드 칸이 생기고, 코드가 맞아야 분석됩니다.
    - `GEMINI_MODEL` (Type: Text, 선택): 쓸 모델 이름. 비워 두면 `gemini-flash-latest`를 먼저 시도합니다.
 4. 저장 후 **Deploy** 를 한 번 더 누르면(또는 GitHub에 커밋하면) 적용됩니다.
-5. 주소는 `https://lesson-plan-ai.<계정>.workers.dev` 형태입니다.
+5. 주소는 `https://checklist.<계정>.workers.dev` 형태입니다.
 
 ## 로컬에서 실행
 
