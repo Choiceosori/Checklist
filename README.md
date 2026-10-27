@@ -41,6 +41,13 @@ wrangler.jsonc     Cloudflare Workers 설정
 4. 저장 후 **Deploy** 를 한 번 더 누르면(또는 GitHub에 커밋하면) 적용됩니다.
 5. 주소는 `https://checklist.<계정>.workers.dev` 형태입니다.
 
+### Pages로 만들었다면
+
+Cloudflare **Pages**(Workers & Pages → Pages → Connect to Git)로 만들어도 동작합니다.
+- Framework preset: None, Build command: 비워 둠, **Build output directory: `public`**
+- 프로젝트 → **Settings → Variables and Secrets**(또는 Environment variables)에서 **Production**에 `GEMINI_API_KEY`를 **Secret(Encrypt)**으로 추가
+- 저장 후 **Deployments → 최근 배포 ⋯ → Retry deployment**로 다시 배포해야 키가 적용됩니다.
+
 ## 로컬에서 실행
 
 ```bash
