@@ -71,7 +71,7 @@ export const LIMITS = {
   fileTypes: ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'],
 };
 
-export function buildPrompt(toolId, { text, grade, subject, note, hasFiles }) {
+export function buildPrompt(toolId, { text, grade, subject, note, hasFiles, standards = [] }) {
   const tool = TOOLS[toolId];
   const crit = tool.items.map((it) => `- ${it.id} [${it.stage}/${it.crit}] ${it.q} (${it.d})`).join('\n');
   const ctx = [
@@ -79,6 +79,7 @@ export function buildPrompt(toolId, { text, grade, subject, note, hasFiles }) {
     subject && `교과: ${subject}`,
     note && `교사가 특히 봐 달라고 한 점: ${note}`,
   ].filter(Boolean).join('\n');
+  const std = standards.map((s) => `- [${s.code}] ${s.text}`).join('\n');
   const n = tool.items.length;
   return `당신은 백워드 설계와 AI·디지털 도구를 활용한 수업 설계를 검토하는 경험 많은 수석교사입니다. 「${tool.title}」 점검표의 ${n}개 항목으로 지도안을 진단하세요.
 ${tool.aiNote ? '\n' + tool.aiNote + '\n' : ''}
@@ -92,7 +93,7 @@ ${tool.aiNote ? '\n' + tool.aiNote + '\n' : ''}
 
 점검 항목:
 ${crit}
-${ctx ? '\n수업 정보(교사 입력):\n' + ctx + '\n' : ''}${hasFiles ? '\n지도안 파일(PDF 또는 이미지)이 첨부되어 있습니다. 첨부 파일의 내용을 지도안으로 읽으세요.\n' : ''}
+${ctx ? '\n수업 정보(교사 입력):\n' + ctx + '\n' : ''}${std ? '\n교사가 이 수업에서 다룬다고 고른 2022 개정 교육과정 성취기준:\n' + std + '\n지도안의 학습 목표·활동·평가가 이 성취기준과 맞는지도 점검하고, 성취기준과 관련된 항목의 판단에 반영하세요.\n' : ''}${hasFiles ? '\n지도안 파일(PDF 또는 이미지)이 첨부되어 있습니다. 첨부 파일의 내용을 지도안으로 읽으세요.\n' : ''}
 <지도안>
 ${text || '(첨부 파일 참고)'}
 </지도안>
@@ -100,7 +101,7 @@ ${text || '(첨부 파일 참고)'}
 다음 형식의 JSON만 출력하세요. 모든 문장은 한국어 '-습니다'체로 쓰세요.
 {"lesson":{"title":"수업 주제(지도안에서 추정)","subject":"교과","grade":"학교급·학년","aiTools":["활용 도구"]},
  "items":[{"id":"q1","score":3,"evidence":"지도안 속 관련 문장을 60자 이내로 그대로 인용","reason":"판단 근거 1~2문장","suggestion":"지도안에 바로 반영할 수 있는 구체적 수정 제안 1~2문장"}, ... q1부터 q${n}까지 ${n}개],
- "overall":"종합 의견 2~3문장",
+ "overall":"종합 의견 2~3문장",${std ? '\n "standardsFit":"고른 성취기준과 지도안 목표·활동·평가의 일치 정도와 보완점 2~3문장",' : ''}
  "strengths":["강점 2~3개"],
  "priorities":["가장 먼저 고칠 점 3개, 중요한 순서대로"]}`;
 }

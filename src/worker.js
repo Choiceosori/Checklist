@@ -1,6 +1,7 @@
 // Cloudflare Worker: 정적 화면(public/)을 내보내고, /api/analyze 에서 Gemini API를 호출합니다.
 // API 키는 코드에 넣지 않습니다. Cloudflare 대시보드의 Secret(GEMINI_API_KEY)에서만 읽습니다.
 import { buildPrompt, LIMITS, TOOLS } from '../public/criteria.js';
+import { STANDARD_BY_CODE } from '../public/standards.js';
 
 // GEMINI_MODEL 변수로 바꿀 수 있습니다. 지정한 모델이 없으면(404) 다음 후보로 넘어갑니다.
 const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
@@ -47,6 +48,9 @@ async function analyze(request, env) {
     subject: String(body.subject || '').slice(0, 50),
     note: String(body.note || '').slice(0, 300),
     hasFiles: files.length > 0,
+    // 코드만 받아 서버가 가진 공식 문구로 바꿉니다(없는 코드는 버림).
+    standards: (Array.isArray(body.standards) ? body.standards : []).slice(0, 8)
+      .map((c) => STANDARD_BY_CODE[String(c)]).filter(Boolean),
   });
   const payload = {
     contents: [{
