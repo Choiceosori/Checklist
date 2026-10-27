@@ -1,5 +1,4 @@
-import { STAGES, ITEMS, SCORE_LABEL, LIMITS } from './criteria.js';
-
+import { TOOLS, TOOL_ORDER, LIMITS } from './criteria.js';
 const SAMPLE_PLAN = `[예시] 교수·학습 과정안
 교과: 과학 / 대상: 초등학교 5학년 2반 (24명) / 차시: 3/8차시 (40분)
 단원: 3. 날씨와 우리 생활
@@ -35,20 +34,30 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
 
-let attachments = [];  // [{name, mimeType, data(base64), size}] PDF·이미지는 원본 그대로 AI에게 보냅니다
-const emptySelf = () => Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-// step: 지금 보이는 단계, self: 자기 평가 점수(0=미선택), result: AI 진단 결과(normalize 거친 것)
-let state = { step: 1, self: emptySelf(), result: null };
+/* ---------- 탭별 상태 ----------
+   탭(D1, D3)마다 자기 평가·성찰 메모·지도안 입력·AI 결과를 따로 보관합니다. */
+const INPUT_IDS = ['plan-text', 'ctx-grade', 'ctx-subject', 'ctx-note'];
+let toolId = 'd1';
+let T = TOOLS[toolId];
+const emptySelf = (tool) => Object.fromEntries(tool.items.map((i) => [i.id, 0]));
+const freshTab = (id) => ({ step: 1, self: emptySelf(TOOLS[id]), memo: {}, result: null, inputs: {}, attachments: [] });
+const tabs = Object.fromEntries(TOOL_ORDER.map((id) => [id, freshTab(id)]));
+let state = tabs[toolId];
+let attachments = [];  // 지금 탭의 [{name, mimeType, data(base64), size}] PDF·이미지는 원본 그대로 AI에게 보냅니다
 let ctl = null;
 
 /* ---------- 브라우저 저장 (이 기기에서만) ---------- */
-const STORE_KEY = 'lp-diag-v2';
+const STORE_KEY = 'lp-diag-v3';
+function captureInputs() {
+  state.inputs = Object.fromEntries(INPUT_IDS.map((id) => [id, $(id).value]));
+  state.attachments = attachments;
+}
 function saveLocal() {
+  captureInputs();
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({
-      text: $('plan-text').value, grade: $('ctx-grade').value, subject: $('ctx-subject').value,
-      note: $('ctx-note').value, code: $('ctx-code').value, state,
-    }));
+    // 첨부 파일 원본은 용량이 커서 저장하지 않습니다.
+    const slim = Object.fromEntries(TOOL_ORDER.map((id) => { const { attachments: _a, ...rest } = tabs[id]; return [id, rest]; }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ toolId, code: $('ctx-code').value, tabs: slim }));
   } catch (e) {}
 }
 function loadLocal() {
@@ -142,17 +151,23 @@ function updateCount() {
 }
 
 /* ---------- 공통 ---------- */
-const ids = ITEMS.map((i) => i.id);
-const stageIds = (key) => ITEMS.filter((i) => i.stage === key).map((i) => i.id);
+const ids = () => T.items.map((i) => i.id);
+const stageIds = (key) => T.items.filter((i) => i.stage === key).map((i) => i.id);
 const avg = (list, scores) => list.reduce((a, id) => a + scores[id], 0) / list.length;
-const selfDone = () => ids.every((id) => state.self[id] > 0);
+// AI 점수는 '판단 보류(null)'가 있을 수 있어 그 항목은 평균에서 뺍니다.
+function aiAvg(list, ai) { const v = list.filter((id) => ai[id] != null); return v.length ? avg(v, ai) : null; }
+const fmt = (v) => (v == null ? '–' : v.toFixed(1));
+const selfDone = () => ids().every((id) => state.self[id] > 0);
+const num = (id) => T.items.findIndex((i) => i.id === id) + 1;
 function gradeOf(v) {
+  if (v == null) return { cls: 'g2', t: '판단 보류' };
   if (v >= 4.5) return { cls: 'g4', t: '매우 우수' };
   if (v >= 3.8) return { cls: 'g3', t: '우수' };
   if (v >= 3.0) return { cls: 'g2', t: '보통 · 부분 보완' };
   return { cls: 'g1', t: '미흡 · 재검토' };
 }
 function gapOf(me, ai) {
+  if (ai == null) return { cls: 'na', t: 'AI 판단 보류' };
   const d = me - ai;
   if (d === 0) return { cls: 'same', t: '일치' };
   const t = `내가 ${Math.abs(d)}점 ${d > 0 ? '높게' : '낮게'} 봄`;
@@ -161,7 +176,7 @@ function gapOf(me, ai) {
 }
 function miniStars(score, cls = '') {
   let h = `<span class="mini-stars ${cls}" aria-hidden="true">`;
-  for (let v = 1; v <= 5; v++) h += `<span class="${v <= score ? 'on' : ''}">${STAR_SVG}</span>`;
+  for (let v = 1; v <= 5; v++) h += `<span class="${score && v <= score ? 'on' : ''}">${STAR_SVG}</span>`;
   return h + '</span>';
 }
 function stageHead(s) {
@@ -169,8 +184,33 @@ function stageHead(s) {
     <h3><span class="tag" style="background:var(--${s.c})">${s.name}</span>${esc(s.title)}</h3><span class="focus">${esc(s.focus)}</span></div>`;
 }
 function itemQuestion(base, s, withDesc) {
-  const n = ITEMS.indexOf(base) + 1;
-  return `<div class="item-q"><span class="crit" style="background:var(--${s.c}-soft);color:var(--${s.c})">${base.crit}</span><h4>${n}. ${esc(base.q)}</h4>${withDesc ? `<p class="desc">${esc(base.d)}</p>` : ''}</div>`;
+  return `<div class="item-q"><span class="crit" style="background:var(--${s.c}-soft);color:var(--${s.c})">${esc(base.crit)}</span><h4>${num(base.id)}. ${esc(base.q)}</h4>${withDesc ? `<p class="desc">${esc(base.d)}</p>` : ''}</div>`;
+}
+
+/* ---------- 탭 ---------- */
+function renderTabs() {
+  $('tabs').innerHTML = TOOL_ORDER.map((id) => {
+    const t = TOOLS[id];
+    return `<a href="#${id}" role="tab" data-tool="${id}" aria-selected="${id === toolId}"><b>${esc(t.tab)}</b><small>${t.items.length}개 항목 · ${t.stages.length}단계</small></a>`;
+  }).join('');
+  $('stage-key').innerHTML = T.stages.map((s) => `<span style="background:var(--${s.c}-soft);color:var(--${s.c})">${s.name} · ${stageIds(s.key).length}항목</span>`).join('');
+  $('tool-blurb').textContent = T.blurb;
+  $('step1-sub').textContent = `${T.items.length}개 항목 별점`;
+  $('self-guide').textContent = `「${T.title}」 점검표입니다. 지도안과 수업 준비 과정을 떠올리며 별점을 매겨 주세요. ★1개는 '${T.scale[1]}', ★5개는 '${T.scale[5]}'입니다. AI는 이 점수를 보지 않고 따로 진단합니다.`;
+  document.documentElement.style.setProperty('--stage-count', T.stages.length);
+  document.title = `${T.tab} · AI 수업 설계 진단`;
+}
+function switchTool(id) {
+  if (!TOOLS[id] || id === toolId) return;
+  if (ctl) { toast('AI 진단이 끝난 뒤 탭을 바꿔 주세요.'); return; }
+  captureInputs();
+  toolId = id; T = TOOLS[id]; state = tabs[id];
+  for (const k of INPUT_IDS) $(k).value = state.inputs[k] || '';
+  attachments = state.attachments || [];
+  renderChip(); setHint(''); updateCount(); hideStatus();
+  renderAll(); saveLocal();
+  if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+  window.scrollTo({ top: 0 });
 }
 
 /* ---------- 단계 이동 ---------- */
@@ -185,8 +225,7 @@ function goStep(n) {
 function renderSteps() {
   document.querySelectorAll('.steps button').forEach((b) => {
     const n = Number(b.dataset.go);
-    b.toggleAttribute('aria-current', n === state.step);
-    if (n === state.step) b.setAttribute('aria-current', 'step');
+    if (n === state.step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
     b.disabled = (n === 2 && !selfDone()) || (n === 3 && !state.result);
     b.classList.toggle('done', n !== state.step && ((n === 1 && selfDone()) || (n === 2 && !!state.result)));
   });
@@ -196,26 +235,46 @@ function renderSteps() {
 /* ---------- 1단계: 자기 평가 ---------- */
 function renderSelf() {
   let h = '';
-  for (const s of STAGES) {
+  for (const s of T.stages) {
     h += `<section class="panel stage-section">${stageHead(s)}`;
-    for (const base of ITEMS.filter((i) => i.stage === s.key)) {
+    for (const base of T.items.filter((i) => i.stage === s.key)) {
       const v = state.self[base.id];
-      let stars = `<div class="stars" role="radiogroup" aria-label="${ITEMS.indexOf(base) + 1}번 자기 평가">`;
-      for (let k = 1; k <= 5; k++) stars += `<button type="button" role="radio" aria-checked="${k === v}" aria-label="${k}점 ${SCORE_LABEL[k]}" data-q="${base.id}" data-v="${k}" class="${k <= v ? 'on' : ''}">${STAR_SVG}</button>`;
+      let stars = `<div class="stars" role="radiogroup" aria-label="${num(base.id)}번 자기 평가">`;
+      for (let k = 1; k <= 5; k++) stars += `<button type="button" role="radio" aria-checked="${k === v}" aria-label="${k}점 ${T.scale[k]}" data-q="${base.id}" data-v="${k}" class="${k <= v ? 'on' : ''}">${STAR_SVG}</button>`;
       stars += '</div>';
       h += `<div class="item" data-id="${base.id}"><div class="item-top">${itemQuestion(base, s, true)}
-        <div class="rate">${stars}<span class="rlabel">${v ? `<b>${v}점 ${SCORE_LABEL[v]}</b>` : '선택 안 됨'}</span></div></div></div>`;
+        <div class="rate">${stars}<span class="rlabel">${v ? `<b>${v}점 · ${T.scale[v]}</b>` : '선택 안 됨'}</span></div></div></div>`;
+    }
+    if (T.memo) {
+      h += `<div class="memo"><label class="label" for="memo-${toolId}-${s.key}">${s.name} 단계 자가 성찰 및 특이사항 (선택)</label>
+        <textarea id="memo-${toolId}-${s.key}" data-memo="${s.key}" placeholder="이 단계에서 잘된 점, 아쉬운 점, 고칠 점을 자유롭게 적어 주세요.">${esc(state.memo[s.key] || '')}</textarea></div>`;
     }
     h += '</section>';
   }
   $('self-form').innerHTML = h;
-  const done = ids.filter((id) => state.self[id] > 0).length;
-  $('self-progress').textContent = `${done} / ${ids.length}`;
-  $('self-bar').style.width = `${done / ids.length * 100}%`;
+  updateSelfProgress();
+}
+function updateSelfProgress() {
+  const all = ids(), done = all.filter((id) => state.self[id] > 0).length;
+  $('self-progress').textContent = `${done} / ${all.length}`;
+  $('self-bar').style.width = `${done / all.length * 100}%`;
+}
+function setSelfScore(q, v) {
+  state.self[q] = v;
+  const item = document.querySelector(`#self-form .item[data-id="${q}"]`);
+  if (item) {
+    item.classList.remove('missing');
+    item.querySelectorAll('.stars button').forEach((b) => {
+      const k = Number(b.dataset.v);
+      b.classList.toggle('on', k <= v); b.setAttribute('aria-checked', String(k === v));
+    });
+    item.querySelector('.rlabel').innerHTML = `<b>${v}점 · ${T.scale[v]}</b>`;
+  }
+  updateSelfProgress(); renderSteps(); saveLocal();
 }
 function flagMissing() {
   if (state.step !== 1) { state.step = 1; renderAll(); }
-  const missing = ids.filter((id) => !state.self[id]);
+  const missing = ids().filter((id) => !state.self[id]);
   missing.forEach((id) => document.querySelector(`#self-form .item[data-id="${id}"]`)?.classList.add('missing'));
   document.querySelector(`#self-form .item[data-id="${missing[0]}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   toast(`아직 평가하지 않은 항목이 ${missing.length}개 있습니다.`);
@@ -224,8 +283,8 @@ function flagMissing() {
 /* ---------- 2단계: 자기 평가 요약 ---------- */
 function renderSelfSummary() {
   if (!selfDone()) { $('self-summary').innerHTML = ''; return; }
-  $('self-summary').innerHTML = `<span>내 자기 평가 평균 <span class="val">${avg(ids, state.self).toFixed(1)} / 5.0</span></span>
-    <span style="color:var(--muted)">${STAGES.map((s) => `${s.name} ${avg(stageIds(s.key), state.self).toFixed(1)}`).join(' · ')}</span>`;
+  $('self-summary').innerHTML = `<span>${esc(T.tab)} 자기 평가 평균 <span class="val">${avg(ids(), state.self).toFixed(1)} / 5.0</span></span>
+    <span style="color:var(--muted)">${T.stages.map((s) => `${s.name} ${avg(stageIds(s.key), state.self).toFixed(1)}`).join(' · ')}</span>`;
 }
 
 /* ---------- AI 진단 ---------- */
@@ -233,10 +292,10 @@ function normalize(r) {
   if (!r || typeof r !== 'object' || !Array.isArray(r.items)) throw new Error('AI 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.');
   const byId = {};
   for (const it of r.items) if (it && it.id) byId[String(it.id).toLowerCase()] = it;
-  const items = ITEMS.map((base) => {
+  const items = T.items.map((base) => {
     const it = byId[base.id] || {};
-    const s = Math.round(Number(it.score));
-    return { id: base.id, score: s >= 1 && s <= 5 ? s : 1, evidence: String(it.evidence || ''), reason: String(it.reason || '분석 결과가 없습니다.'), suggestion: String(it.suggestion || '') };
+    const s = it.score == null ? null : Math.round(Number(it.score));
+    return { id: base.id, score: s >= 1 && s <= 5 ? s : null, evidence: String(it.evidence || ''), reason: String(it.reason || '분석 결과가 없습니다.'), suggestion: String(it.suggestion || '') };
   });
   const L = r.lesson || {};
   return {
@@ -254,10 +313,11 @@ async function analyze() {
   if (text.length < 40 && !attachments.length) { showStatus('분석할 지도안을 올리거나 내용을 40자 이상 넣어 주세요.', 'err'); return; }
   if (!$('code-wrap').hidden && !$('ctx-code').value.trim()) { showStatus('접속 코드를 넣어 주세요.', 'err'); $('ctx-code').focus(); return; }
 
+  const runTool = toolId, runState = state;
   ctl = new AbortController();
   $('btn-analyze').disabled = true; $('btn-stop').hidden = false;
   const t0 = Date.now();
-  const tick = () => showStatus(`AI가 지도안을 읽고 진단하는 중입니다 · ${Math.round((Date.now() - t0) / 1000)}초`, 'busy');
+  const tick = () => showStatus(`AI가 ${TOOLS[runTool].tab} 점검표로 지도안을 진단하는 중입니다 · ${Math.round((Date.now() - t0) / 1000)}초`, 'busy');
   tick(); const timer = setInterval(tick, 1000);
   try {
     const res = await fetch('/api/analyze', {
@@ -265,20 +325,20 @@ async function analyze() {
       headers: { 'content-type': 'application/json' },
       signal: ctl.signal,
       body: JSON.stringify({
-        text, grade: $('ctx-grade').value, subject: $('ctx-subject').value, note: $('ctx-note').value,
+        tool: runTool, text, grade: $('ctx-grade').value, subject: $('ctx-subject').value, note: $('ctx-note').value,
         code: $('ctx-code').value, files: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `서버 오류가 발생했습니다 (${res.status}).`);
-    state.result = normalize(data.result);
+    runState.result = normalize(data.result);
     hideStatus();
     goStep(3);
   } catch (e) {
     if (e.name === 'AbortError') hideStatus();
     else showStatus(e.message === 'Failed to fetch' ? '서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.' : e.message, 'err');
   } finally {
-    clearInterval(timer);
+    clearInterval(timer); ctl = null;
     $('btn-analyze').disabled = false; $('btn-stop').hidden = true;
   }
 }
@@ -296,17 +356,19 @@ function renderCompare() {
   const el = $('step3');
   const r = state.result;
   if (!r) { el.innerHTML = ''; return; }
-  const me = state.self, ai = aiScores();
-  const meAvg = avg(ids, me), aiAvg = avg(ids, ai);
-  const gm = gradeOf(meAvg), ga = gradeOf(aiAvg);
-  const over = ids.filter((id) => me[id] - ai[id] >= 2);
-  const under = ids.filter((id) => ai[id] - me[id] >= 2);
-  const same = ids.filter((id) => me[id] === ai[id]).length;
-  const qTitle = (id) => { const b = ITEMS.find((i) => i.id === id); return `${ITEMS.indexOf(b) + 1}. ${b.q}`; };
+  const me = state.self, ai = aiScores(), all = ids();
+  const meAvg = avg(all, me), aiTotal = aiAvg(all, ai);
+  const gm = gradeOf(meAvg), ga = gradeOf(aiTotal);
+  const judged = all.filter((id) => ai[id] != null);
+  const over = judged.filter((id) => me[id] - ai[id] >= 2);
+  const under = judged.filter((id) => ai[id] - me[id] >= 2);
+  const held = all.filter((id) => ai[id] == null);
+  const same = judged.filter((id) => me[id] === ai[id]).length;
+  const qTitle = (id) => `${num(id)}. ${T.items.find((i) => i.id === id).q}`;
 
   let h = `<div class="panel overview">
     <div class="lesson-meta">
-      <div class="eyebrow">3단계 · 진단한 지도안</div>
+      <div class="eyebrow">3단계 · ${esc(T.tab)} 점검표로 진단한 지도안</div>
       <h2>${esc(r.lesson.title)}</h2>
       <div class="chips">
         ${r.lesson.grade ? `<span class="chip">${esc(r.lesson.grade)}</span>` : ''}
@@ -318,17 +380,17 @@ function renderCompare() {
     <div class="score-box">
       <div class="score-pair">
         <div class="me"><span class="who">내 자기 평가</span><div class="score-num">${meAvg.toFixed(1)}</div><span class="grade ${gm.cls}">${gm.t}</span></div>
-        <div><span class="who">AI 진단</span><div class="score-num">${aiAvg.toFixed(1)}</div><span class="grade ${ga.cls}">${ga.t}</span></div>
+        <div><span class="who">AI 진단</span><div class="score-num">${fmt(aiTotal)}</div><span class="grade ${ga.cls}">${ga.t}</span></div>
       </div>
-      <span class="adjusted-note">8개 항목 중 ${same}개 일치 · 5점 만점</span>
+      <span class="adjusted-note">${all.length}개 항목 중 ${same}개 일치${held.length ? ` · AI 판단 보류 ${held.length}개(평균 제외)` : ''} · 5점 만점</span>
     </div>
     <div class="stages">
-      ${STAGES.map((s) => {
-        const list = stageIds(s.key), m = avg(list, me), a = avg(list, ai);
+      ${T.stages.map((s) => {
+        const list = stageIds(s.key), m = avg(list, me), a = aiAvg(list, ai);
         return `<div class="stage-tile"><div class="top"><span class="name" style="color:var(--${s.c})">${s.name}</span></div>
           <div class="dual">
             <div class="ln"><span>나</span><div class="bar"><i style="width:${m / 5 * 100}%;background:var(--${s.c})"></i></div><span>${m.toFixed(1)}</span></div>
-            <div class="ln"><span>AI</span><div class="bar"><i class="ai" style="width:${a / 5 * 100}%"></i></div><span>${a.toFixed(1)}</span></div>
+            <div class="ln"><span>AI</span><div class="bar"><i class="ai" style="width:${(a || 0) / 5 * 100}%"></i></div><span>${fmt(a)}</span></div>
           </div></div>`;
       }).join('')}
     </div>
@@ -336,11 +398,12 @@ function renderCompare() {
 
   h += `<div class="panel reflect"><h3>돌아볼 점</h3>`;
   if (!over.length && !under.length) {
-    h += `<p>자기 평가와 AI 진단이 모든 항목에서 1점 이내로 비슷합니다. 아래 개선 제안을 중심으로 지도안을 다듬어 보세요.</p>`;
+    h += `<p>자기 평가와 AI 진단이 AI가 판단한 모든 항목에서 1점 이내로 비슷합니다. 아래 개선 제안을 중심으로 지도안을 다듬어 보세요.</p>`;
   } else {
     if (over.length) h += `<p>스스로는 높게 봤지만 지도안에서 근거가 약하게 드러난 항목입니다. 수업 의도가 지도안에 글로 적혀 있는지 확인해 보세요.</p><ul>${over.map((id) => `<li><b>${esc(qTitle(id))}</b> · 나 ${me[id]}점, AI ${ai[id]}점</li>`).join('')}</ul>`;
     if (under.length) h += `<p style="margin-top:12px">스스로는 낮게 봤지만 AI는 지도안에서 충분한 근거를 찾은 항목입니다. 이미 잘 설계한 부분일 수 있습니다.</p><ul>${under.map((id) => `<li><b>${esc(qTitle(id))}</b> · 나 ${me[id]}점, AI ${ai[id]}점</li>`).join('')}</ul>`;
   }
+  if (held.length) h += `<p style="margin-top:12px">지도안만으로는 AI가 판단하기 어려운 항목입니다. 이 항목은 선생님의 자기 평가와 성찰을 기준으로 삼으세요.</p><ul>${held.map((id) => `<li><b>${esc(qTitle(id))}</b> · 나 ${me[id]}점</li>`).join('')}</ul>`;
   h += `</div>`;
 
   h += `<div class="two-lists">
@@ -348,16 +411,16 @@ function renderCompare() {
     <div class="panel list-card"><h3><span class="dot" style="background:var(--bad)"></span>먼저 고칠 점</h3><ol>${r.priorities.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>
   </div>`;
 
-  for (const s of STAGES) {
+  for (const s of T.stages) {
     h += `<section class="panel stage-section">${stageHead(s)}`;
-    for (const base of ITEMS.filter((i) => i.stage === s.key)) {
+    for (const base of T.items.filter((i) => i.stage === s.key)) {
       const it = r.items.find((x) => x.id === base.id);
       const g = gapOf(me[base.id], ai[base.id]);
       h += `<div class="item">
         <div class="item-top">${itemQuestion(base, s, false)}
           <div class="cmp">
             <div class="row"><span>나</span>${miniStars(me[base.id])}<b>${me[base.id]}</b></div>
-            <div class="row"><span>AI</span>${miniStars(ai[base.id], 'ai')}<b>${ai[base.id]}</b></div>
+            <div class="row"><span>AI</span>${miniStars(ai[base.id], 'ai')}<b>${ai[base.id] ?? '–'}</b></div>
             <span class="gap ${g.cls}">${g.t}</span>
           </div>
         </div>
@@ -365,6 +428,7 @@ function renderCompare() {
         <dl class="kv"><dt>판단 근거</dt><dd>${esc(it.reason)}</dd>${it.suggestion ? `<dt>개선 제안</dt><dd>${esc(it.suggestion)}</dd>` : ''}</dl>
       </div>`;
     }
+    if (T.memo && state.memo[s.key]) h += `<p class="memo-out"><b>나의 성찰</b>${esc(state.memo[s.key])}</p>`;
     h += `</section>`;
   }
 
@@ -380,7 +444,7 @@ function renderCompare() {
       <button type="button" class="btn small" id="btn-restart">새로 시작</button>
     </div>
     <div id="restart-confirm" class="status" hidden style="width:100%;justify-content:space-between;flex-wrap:wrap">
-      <span>자기 평가, 지도안, 진단 결과를 모두 지웁니다.</span>
+      <span>${esc(T.tab)} 탭의 자기 평가, 지도안, 진단 결과를 모두 지웁니다.</span>
       <span class="btn-row"><button type="button" class="btn small" id="btn-restart-no">취소</button><button type="button" class="btn small primary" id="btn-restart-yes">모두 지우기</button></span>
     </div>
     <textarea id="copy-fallback" readonly hidden></textarea>
@@ -389,25 +453,28 @@ function renderCompare() {
 }
 
 function reportText() {
-  const r = state.result, me = state.self, ai = aiScores();
-  let t = `# AI 수업 설계 진단 결과\n\n`;
+  const r = state.result, me = state.self, ai = aiScores(), all = ids();
+  let t = `# ${T.title} 진단 결과\n\n`;
   t += `- 지도안: ${r.lesson.title}\n`;
   if (r.lesson.grade || r.lesson.subject) t += `- 대상: ${[r.lesson.grade, r.lesson.subject].filter(Boolean).join(' / ')}\n`;
   if (r.lesson.aiTools.length) t += `- 활용 도구: ${r.lesson.aiTools.join(', ')}\n`;
-  t += `- 평균: 자기 평가 ${avg(ids, me).toFixed(1)} / AI 진단 ${avg(ids, ai).toFixed(1)} (5점 만점)\n\n`;
-  t += `## 단계별 평균 (나 / AI)\n` + STAGES.map((s) => `- ${s.name}: ${avg(stageIds(s.key), me).toFixed(1)} / ${avg(stageIds(s.key), ai).toFixed(1)}`).join('\n') + '\n\n';
+  t += `- 평균: 자기 평가 ${avg(all, me).toFixed(1)} / AI 진단 ${fmt(aiAvg(all, ai))} (5점 만점)\n\n`;
+  t += `## 단계별 평균 (나 / AI)\n` + T.stages.map((s) => `- ${s.name}: ${avg(stageIds(s.key), me).toFixed(1)} / ${fmt(aiAvg(stageIds(s.key), ai))}`).join('\n') + '\n\n';
   if (r.overall) t += `## 종합 의견\n${r.overall}\n\n`;
   if (r.strengths.length) t += `## 잘된 점\n` + r.strengths.map((s, i) => `${i + 1}. ${s}`).join('\n') + '\n\n';
   if (r.priorities.length) t += `## 먼저 고칠 점\n` + r.priorities.map((s, i) => `${i + 1}. ${s}`).join('\n') + '\n\n';
   t += `## 항목별 비교\n`;
-  ITEMS.forEach((base, i) => {
-    const it = r.items.find((x) => x.id === base.id);
-    t += `\n### ${i + 1}. [${base.stage}/${base.crit}] ${base.q}\n`;
-    t += `- 자기 평가 ${me[base.id]}점 · AI ${ai[base.id]}점 (${gapOf(me[base.id], ai[base.id]).t})\n`;
-    t += `- 근거 인용: ${it.evidence ? '"' + it.evidence + '"' : '지도안에서 찾지 못함'}\n`;
-    t += `- 판단 근거: ${it.reason}\n`;
-    if (it.suggestion) t += `- 개선 제안: ${it.suggestion}\n`;
-  });
+  for (const s of T.stages) {
+    for (const base of T.items.filter((i) => i.stage === s.key)) {
+      const it = r.items.find((x) => x.id === base.id);
+      t += `\n### ${num(base.id)}. [${base.stage}/${base.crit}] ${base.q}\n`;
+      t += `- 자기 평가 ${me[base.id]}점 · AI ${ai[base.id] ?? '판단 보류'}${ai[base.id] != null ? '점' : ''} (${gapOf(me[base.id], ai[base.id]).t})\n`;
+      t += `- 근거 인용: ${it.evidence ? '"' + it.evidence + '"' : '지도안에서 찾지 못함'}\n`;
+      t += `- 판단 근거: ${it.reason}\n`;
+      if (it.suggestion) t += `- 개선 제안: ${it.suggestion}\n`;
+    }
+    if (T.memo && state.memo[s.key]) t += `\n> ${s.name} 단계 나의 성찰: ${state.memo[s.key].replace(/\n/g, ' ')}\n`;
+  }
   return t;
 }
 
@@ -420,6 +487,7 @@ function toast(msg) {
 }
 
 function renderAll() {
+  renderTabs();
   renderSteps();
   if (state.step === 1) renderSelf();
   if (state.step === 2) renderSelfSummary();
@@ -430,16 +498,20 @@ function renderAll() {
 document.addEventListener('click', (ev) => {
   const go = ev.target.closest('[data-go]');
   if (go && !go.disabled) goStep(Number(go.dataset.go));
+  const tab = ev.target.closest('[data-tool]');
+  if (tab) { ev.preventDefault(); switchTool(tab.dataset.tool); }
 });
+window.addEventListener('hashchange', () => switchTool(location.hash.slice(1)));
 
 $('self-form').addEventListener('click', (ev) => {
   const star = ev.target.closest('.stars button');
-  if (!star) return;
-  state.self[star.dataset.q] = Number(star.dataset.v);
-  renderSelf(); renderSteps(); saveLocal();
-  document.querySelector(`#self-form .stars button[data-q="${star.dataset.q}"][data-v="${star.dataset.v}"]`)?.focus();
+  if (star) setSelfScore(star.dataset.q, Number(star.dataset.v));
 });
-$('btn-self-reset').addEventListener('click', () => { state.self = emptySelf(); renderAll(); saveLocal(); });
+$('self-form').addEventListener('input', (ev) => {
+  const m = ev.target.closest('[data-memo]');
+  if (m) { state.memo[m.dataset.memo] = m.value; saveLocal(); }
+});
+$('btn-self-reset').addEventListener('click', () => { state.self = emptySelf(T); renderAll(); saveLocal(); });
 $('btn-to2').addEventListener('click', () => goStep(2));
 
 $('step3').addEventListener('click', async (ev) => {
@@ -450,27 +522,27 @@ $('step3').addEventListener('click', async (ev) => {
   } else if (ev.target.closest('#btn-save')) {
     const safe = state.result.lesson.title.replace(/[\\/:*?"<>|]+/g, '').slice(0, 40).trim() || '지도안';
     const url = URL.createObjectURL(new Blob([reportText()], { type: 'text/markdown;charset=utf-8' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: `수업설계진단_${safe}.md` });
+    const a = Object.assign(document.createElement('a'), { href: url, download: `${toolId.toUpperCase()}_수업설계진단_${safe}.md` });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } else if (ev.target.closest('#btn-print')) window.print();
   else if (ev.target.closest('#btn-restart')) $('restart-confirm').hidden = false;
   else if (ev.target.closest('#btn-restart-no')) $('restart-confirm').hidden = true;
   else if (ev.target.closest('#btn-restart-yes')) {
-    state = { step: 1, self: emptySelf(), result: null };
-    for (const id of ['plan-text', 'ctx-grade', 'ctx-subject', 'ctx-note']) $(id).value = '';
+    tabs[toolId] = state = freshTab(toolId);
+    for (const id of INPUT_IDS) $(id).value = '';
     clearAttachments(); renderChip(); setHint(''); updateCount();
     saveLocal(); renderAll(); window.scrollTo({ top: 0 });
   }
 });
 
 $('file-input').multiple = true;
-$('file-input').addEventListener('change', async (e) => { for (const f of e.target.files) await handleFile(f); e.target.value = ''; });
+$('file-input').addEventListener('change', async (e) => { for (const f of e.target.files) await handleFile(f); e.target.value = ''; captureInputs(); });
 const drop = $('drop');
 ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', async (e) => { for (const f of e.dataTransfer.files) await handleFile(f); });
-$('file-clear').addEventListener('click', () => { clearAttachments(); renderChip(); setHint(''); });
+drop.addEventListener('drop', async (e) => { for (const f of e.dataTransfer.files) await handleFile(f); captureInputs(); });
+$('file-clear').addEventListener('click', () => { clearAttachments(); renderChip(); setHint(''); captureInputs(); });
 $('plan-text').addEventListener('input', () => { updateCount(); saveLocal(); });
 for (const id of ['ctx-grade', 'ctx-subject', 'ctx-note', 'ctx-code']) $(id).addEventListener('change', saveLocal);
 $('btn-analyze').addEventListener('click', analyze);
@@ -483,14 +555,21 @@ $('btn-sample').addEventListener('click', () => {
 
 /* ---------- 시작 ---------- */
 const saved = loadLocal();
-if (saved) {
-  $('plan-text').value = saved.text || ''; $('ctx-grade').value = saved.grade || '';
-  $('ctx-subject').value = saved.subject || ''; $('ctx-note').value = saved.note || ''; $('ctx-code').value = saved.code || '';
-  if (saved.state?.self) {
-    state = { step: saved.state.step || 1, self: { ...emptySelf(), ...saved.state.self }, result: saved.state.result || null };
-    if ((state.step === 2 && !selfDone()) || (state.step === 3 && !state.result)) state.step = 1;
+if (saved?.tabs) {
+  for (const id of TOOL_ORDER) {
+    const t = saved.tabs[id];
+    if (!t) continue;
+    tabs[id] = { ...freshTab(id), ...t, self: { ...emptySelf(TOOLS[id]), ...(t.self || {}) }, memo: t.memo || {}, attachments: [] };
   }
+  $('ctx-code').value = saved.code || '';
 }
+const startId = TOOLS[location.hash.slice(1)] ? location.hash.slice(1) : (TOOLS[saved?.toolId] ? saved.toolId : 'd1');
+toolId = startId; T = TOOLS[toolId]; state = tabs[toolId];
+for (const id of TOOL_ORDER) {
+  const t = tabs[id];
+  if ((t.step === 2 && !TOOLS[id].items.every((i) => t.self[i.id] > 0)) || (t.step === 3 && !t.result)) t.step = 1;
+}
+for (const k of INPUT_IDS) $(k).value = state.inputs[k] || '';
 updateCount();
 renderAll();
 fetch('/api/config').then((r) => r.json()).then((c) => { $('code-wrap').hidden = !c.needCode; }).catch(() => {});

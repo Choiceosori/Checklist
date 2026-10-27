@@ -24,6 +24,7 @@
   --s2: #0f8564; --s2-soft: #e3f5ee;
   --s3: #7a44c8; --s3-soft: #f1eafb;
   --s4: #b0640a; --s4-soft: #fbf0e1;
+  --s5: #c0365e; --s5-soft: #fce8ee;
   --good: #137a4e; --good-soft: #e1f4ea;
   --warn: #a86400; --warn-soft: #fcf1dc;
   --bad: #c03636; --bad-soft: #fbe6e6;
@@ -38,7 +39,7 @@
     --bg: #0e131b; --surface: #161d28; --sunken: #111823; --ink: #e5eaf2; --muted: #99a4b5; --line: #29323f;
     --accent: #8aa2ff; --accent-ink: #0e131b; --accent-soft: #1d2747;
     --s1: #82a6ff; --s1-soft: #1a2643; --s2: #4fd1a5; --s2-soft: #12302a;
-    --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f;
+    --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f; --s5: #f58fb0; --s5-soft: #3a1826;
     --good: #5ad19a; --good-soft: #143223; --warn: #f2b158; --warn-soft: #35270f; --bad: #ff8a8a; --bad-soft: #3a1a1c;
     --star: #f5b72b; --star-off: #3a4453;
     color-scheme: dark;
@@ -48,7 +49,7 @@
   --bg: #0e131b; --surface: #161d28; --sunken: #111823; --ink: #e5eaf2; --muted: #99a4b5; --line: #29323f;
   --accent: #8aa2ff; --accent-ink: #0e131b; --accent-soft: #1d2747;
   --s1: #82a6ff; --s1-soft: #1a2643; --s2: #4fd1a5; --s2-soft: #12302a;
-  --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f;
+  --s3: #c09cf5; --s3-soft: #2a1f3f; --s4: #f2b158; --s4-soft: #35270f; --s5: #f58fb0; --s5-soft: #3a1826;
   --good: #5ad19a; --good-soft: #143223; --warn: #f2b158; --warn-soft: #35270f; --bad: #ff8a8a; --bad-soft: #3a1a1c;
   --star: #f5b72b; --star-off: #3a4453;
   color-scheme: dark;
@@ -150,7 +151,7 @@ textarea#plan-text { min-height: 190px; resize: vertical; }
 .adjusted-note { font-size: 12px; color: var(--muted); }
 
 .stages { grid-column: 1 / -1; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 900px) { .stages { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 900px) { .stages { grid-template-columns: repeat(var(--stage-count, 4), minmax(0, 1fr)); } }
 .stage-tile { padding: 12px; border-radius: 8px; background: var(--sunken); display: flex; flex-direction: column; gap: 8px; }
 .stage-tile .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .stage-tile .name { font-size: 12.5px; font-weight: 700; }
@@ -196,6 +197,19 @@ textarea#plan-text { min-height: 190px; resize: vertical; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
 footer.foot { color: var(--muted); font-size: 12.5px; }
 footer.foot .wrap { padding-block: 0 32px; }
+/* D1·D3 탭 */
+.tabs { border-bottom: 1px solid var(--line); background: var(--surface); }
+.tabs .wrap { display: flex; gap: 4px; overflow-x: auto; }
+.tabs a { flex: none; display: flex; flex-direction: column; gap: 1px; padding: 10px 16px 9px; text-decoration: none; color: var(--muted); border-bottom: 3px solid transparent; }
+.tabs a b { font-size: 15px; }
+.tabs a small { font-size: 12px; }
+.tabs a[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs a[aria-selected="true"] b { color: var(--accent); }
+.memo { padding: 0 18px 16px; }
+.memo textarea { min-height: 64px; resize: vertical; }
+.memo-out { margin: 0; padding: 10px 18px 14px; font-size: 13.5px; color: var(--muted); border-top: 1px dashed var(--line); white-space: pre-wrap; }
+.memo-out b { color: var(--ink); margin-right: 6px; }
+.gap.na { background: var(--sunken); color: var(--muted); }
 /* 3단계 흐름 */
 .steps { list-style: none; margin: 0 auto; padding: 0; max-width: 920px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .steps button { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px 12px; cursor: pointer; display: flex; gap: 10px; align-items: center; color: var(--muted); }
@@ -261,20 +275,16 @@ footer.foot .wrap { padding-block: 0 32px; }
   <div class="wrap">
     <div class="brand">
       <h1>AI 수업 설계 진단</h1>
-      <p>먼저 내 수업 설계를 스스로 평가하고, AI 진단 결과와 나란히 비교합니다.</p>
+      <p id="tool-blurb">먼저 내 수업 설계를 스스로 평가하고, AI 진단 결과와 나란히 비교합니다.</p>
     </div>
-    <div class="stage-key" aria-label="점검 단계">
-      <span style="background:var(--s1-soft);color:var(--s1)">도입 · 3항목</span>
-      <span style="background:var(--s2-soft);color:var(--s2)">전개1 · 2항목</span>
-      <span style="background:var(--s3-soft);color:var(--s3)">전개2 · 1항목</span>
-      <span style="background:var(--s4-soft);color:var(--s4)">전개3 · 2항목</span>
-    </div>
+    <div class="stage-key" id="stage-key" aria-label="점검 단계"></div>
   </div>
 </header>
+<nav class="tabs" aria-label="점검 단계 선택"><div class="wrap" role="tablist" id="tabs"></div></nav>
 
 <main class="wrap">
   <ol class="steps" aria-label="진행 단계">
-    <li><button type="button" data-go="1"><span class="num">1</span><span class="txt"><b>자기 평가</b><small>8개 항목 별점</small></span></button></li>
+    <li><button type="button" data-go="1"><span class="num">1</span><span class="txt"><b>자기 평가</b><small id="step1-sub">항목별 별점</small></span></button></li>
     <li><button type="button" data-go="2"><span class="num">2</span><span class="txt"><b>AI 진단</b><small>지도안 올리기</small></span></button></li>
     <li><button type="button" data-go="3"><span class="num">3</span><span class="txt"><b>비교 결과</b><small>나와 AI의 차이</small></span></button></li>
   </ol>
@@ -283,9 +293,9 @@ footer.foot .wrap { padding-block: 0 32px; }
     <div class="panel intro">
       <div>
         <h2 id="s1-title">1단계 · 자기 평가</h2>
-        <p>지도안을 떠올리며 각 항목에 별점을 매겨 주세요. ★1개는 매우 미흡, ★5개는 매우 우수입니다. AI는 이 점수를 보지 않고 따로 진단합니다.</p>
+        <p id="self-guide">지도안을 떠올리며 각 항목에 별점을 매겨 주세요. AI는 이 점수를 보지 않고 따로 진단합니다.</p>
       </div>
-      <div class="progress"><span>진행 <b id="self-progress">0 / 8</b></span><div class="bar"><i id="self-bar" style="width:0;background:var(--accent)"></i></div></div>
+      <div class="progress"><span>진행 <b id="self-progress">0 / 0</b></span><div class="bar"><i id="self-bar" style="width:0;background:var(--accent)"></i></div></div>
     </div>
     <div id="self-form" style="display:flex;flex-direction:column;gap:20px"></div>
     <div class="step-nav">
@@ -339,7 +349,7 @@ footer.foot .wrap { padding-block: 0 32px; }
   <section id="step3" class="step results" aria-live="polite" hidden></section>
 </main>
 
-<footer class="foot"><div class="wrap">점검 항목은 「AI 활용 수업 설계 자가 진단」 체크리스트(도입·전개1·전개2·전개3, 8개 항목)를 따릅니다. AI 진단은 참고용이며, 자기 평가와의 차이를 돌아보는 데 쓰세요.</div></footer>
+<footer class="foot"><div class="wrap">점검 항목은 연수 단계별 자가 진단 체크리스트(D1 이해, D3 검증)를 따릅니다. AI 진단은 참고용이며, 자기 평가와의 차이를 돌아보는 데 쓰세요.</div></footer>
 
 <script type="module" src="./app.js"></script>
 </body>
