@@ -341,24 +341,25 @@ function renderSubjects() {
 function renderStdList() {
   const g = Number($('ctx-grade').value), subj = $('ctx-subject').value;
   const list = g && subj ? (STANDARDS[bandOf(g)][subj] || []) : [];
-  $('std-wrap').hidden = !list.length && !ai.std.length;
-  const b = g ? bandOf(g) : '';
-  $('std-band').textContent = list.length ? `· ${b.replace('-', '~')}학년군 ${subj} ${list.length}개` : '';
-  const q = $('std-search').value.trim().replace(/\s+/g, '');
-  const shown = q ? list.filter(([c, a, t]) => (c + a + t).replace(/\s+/g, '').includes(q)) : list;
-  let h = '', area = '';
-  for (const [c, a, t] of shown) {
-    if (a !== area) { area = a; h += `<div class="std-area">${esc(a)}</div>`; }
-    const on = ai.std.includes(c);
-    h += `<label class="std-opt${on ? ' on' : ''}"><input type="checkbox" data-std="${c}"${on ? ' checked' : ''}><code>[${c}]</code><span class="t">${esc(t)}</span></label>`;
+  const sel = $('std-select');
+  $('std-band').textContent = list.length ? `· ${bandOf(g).replace('-', '~')}학년군 ${subj} ${list.length}개` : '';
+  if (!list.length) {
+    sel.innerHTML = `<option value="">${g ? '교과를 먼저 고르세요' : '학년과 교과를 먼저 고르세요'}</option>`;
+    sel.disabled = true;
+  } else {
+    // 영역별로 묶은 드롭다운. 이미 고른 성취기준은 앞에 ✓ 표시
+    let h = '<option value="">성취기준 고르기</option>', area = '';
+    for (const [c, a, t] of list) {
+      if (a !== area) { if (area) h += '</optgroup>'; area = a; h += `<optgroup label="${esc(a)}">`; }
+      h += `<option value="${c}">${ai.std.includes(c) ? '✓ ' : ''}[${c}] ${esc(t)}</option>`;
+    }
+    sel.innerHTML = h + '</optgroup>';
+    sel.disabled = false;
   }
-  $('std-list').innerHTML = h || (list.length ? '<div class="std-empty">찾는 낱말이 들어간 성취기준이 없습니다.</div>' : '<div class="std-empty">교과를 고르면 성취기준 목록이 나옵니다.</div>');
-  $('std-list').hidden = !list.length;
   renderChosen();
 }
 function renderChosen() {
-  $('std-chosen').innerHTML = ai.std.map((c) => `<button type="button" class="std-chip" data-unstd="${c}" title="${esc(STANDARD_BY_CODE[c]?.text || '')}">[${c}]<span aria-label="빼기">✕</span></button>`).join('');
-  if (ai.std.length) $('std-wrap').hidden = false;
+  $('std-chosen').innerHTML = ai.std.map((c) => `<li><code>[${c}]</code><span>${esc(STANDARD_BY_CODE[c]?.text || '')}</span><button type="button" data-unstd="${c}" aria-label="[${c}] 빼기">✕</button></li>`).join('');
 }
 function toggleStd(code, on) {
   if (on && !ai.std.includes(code)) {
@@ -681,10 +682,12 @@ drop.addEventListener('drop', async (e) => { for (const f of e.dataTransfer.file
 $('file-clear').addEventListener('click', () => { clearAttachments(); renderChip(); setHint(''); });
 $('plan-text').addEventListener('input', () => { updateCount(); saveLocal(); });
 for (const id of ['ctx-note', 'ctx-code']) $(id).addEventListener('change', saveLocal);
-$('ctx-grade').addEventListener('change', () => { $('std-search').value = ''; renderSubjects(); saveLocal(); });
-$('ctx-subject').addEventListener('change', () => { $('std-search').value = ''; renderStdList(); saveLocal(); });
-$('std-search').addEventListener('input', renderStdList);
-$('std-list').addEventListener('change', (ev) => { const cb = ev.target.closest('[data-std]'); if (cb) toggleStd(cb.dataset.std, cb.checked); });
+$('ctx-grade').addEventListener('change', () => { renderSubjects(); saveLocal(); });
+$('ctx-subject').addEventListener('change', () => { renderStdList(); saveLocal(); });
+$('std-select').addEventListener('change', (ev) => {
+  const c = ev.target.value;
+  if (c) toggleStd(c, !ai.std.includes(c)); // 고른 것을 다시 고르면 뺍니다
+});
 $('std-chosen').addEventListener('click', (ev) => { const b = ev.target.closest('[data-unstd]'); if (b) toggleStd(b.dataset.unstd, false); });
 $('btn-analyze').addEventListener('click', analyze);
 $('btn-stop').addEventListener('click', () => ctl?.abort());

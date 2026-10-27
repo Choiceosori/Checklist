@@ -223,27 +223,14 @@ footer.foot .wrap { padding-block: 0 32px; }
 .tabs a.ai-tab b::before { content: "✦ "; }
 @media (max-width: 480px) { .tabs a small { display: none; } .tabs a { padding: 12px 12px 10px; } }
 /* 기본 정보 · 성취기준 */
-.basic { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.basic legend { font-weight: 700; font-size: 14px; padding: 0 6px; }
 select { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 10px 12px; font-size: 14px; }
 select:disabled { opacity: .6; }
-#std-wrap { display: flex; flex-direction: column; gap: 8px; }
-#std-wrap[hidden] { display: none; }
-.std-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
-.std-head input { width: auto; flex: 1 1 180px; max-width: 260px; padding: 7px 10px; }
-.std-chosen { display: flex; flex-wrap: wrap; gap: 6px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.std-chosen { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .std-chosen:empty { display: none; }
-.std-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 700; border: 0; cursor: pointer; }
-.std-chip span { font-weight: 400; color: var(--muted); padding: 0 4px; }
-.std-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
-.std-area { position: sticky; top: 0; background: var(--sunken); font-size: 12px; font-weight: 700; color: var(--muted); padding: 8px 12px 4px; border-bottom: 1px solid var(--line); }
-.std-opt { display: grid; grid-template-columns: 18px 86px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 12px; font-size: 13.5px; cursor: pointer; border-bottom: 1px solid var(--line); background: var(--surface); }
-.std-opt:last-child { border-bottom: 0; }
-.std-opt input { margin: 3px 0 0; }
-.std-opt code { font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
-.std-opt.on { background: var(--accent-soft); }
-@media (max-width: 480px) { .std-opt { grid-template-columns: 18px minmax(0, 1fr); } .std-opt code { grid-column: 2; } .std-opt .t { grid-column: 2; } }
-.std-empty { padding: 14px; font-size: 13px; color: var(--muted); }
+.std-chosen li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 13.5px; }
+.std-chosen code { font-family: inherit; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.std-chosen button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 13px; }
 .fit { padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
 .fit h3 { margin: 0; font-size: 15px; }
 .fit ul { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
@@ -351,11 +338,26 @@ select:disabled { opacity: .6; }
         </div>
       </div>
       <div class="panel pick-panel">
-        <h2 class="panel-title">1. 어떤 점검표로 검증할까요?</h2>
+        <h2 class="panel-title">1. 기본 정보</h2>
+        <div class="row3">
+          <div><label class="label" for="ctx-grade">학년</label>
+            <select id="ctx-grade"><option value="">학년 선택</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option><option value="4">4학년</option><option value="5">5학년</option><option value="6">6학년</option></select></div>
+          <div><label class="label" for="ctx-subject">교과</label>
+            <select id="ctx-subject" disabled><option value="">학년을 먼저 고르세요</option></select></div>
+        </div>
+        <div>
+          <label class="label" for="std-select">성취기준 <span id="std-band"></span></label>
+          <select id="std-select" disabled><option value="">교과를 먼저 고르세요</option></select>
+          <p class="hint">2022 개정 교육과정 성취기준입니다. 고르면 아래에 추가되고, 여러 개(최대 8개) 고를 수 있습니다. AI가 지도안과 고른 성취기준이 맞는지도 함께 점검합니다.</p>
+        </div>
+        <ul id="std-chosen" class="std-chosen" aria-label="고른 성취기준"></ul>
+      </div>
+      <div class="panel pick-panel">
+        <h2 class="panel-title">2. 어떤 점검표로 검증할까요?</h2>
         <div class="tool-pick" id="tool-pick" role="radiogroup" aria-label="점검표 선택"></div>
       </div>
       <div class="panel input-panel">
-        <h2 class="panel-title" id="in-title">2. 지도안 올리기</h2>
+        <h2 class="panel-title" id="in-title">3. 지도안 올리기</h2>
 
       <div>
         <label class="drop" id="drop" for="file-input">
@@ -374,24 +376,6 @@ select:disabled { opacity: .6; }
         <p class="hint" id="text-count">0자</p>
       </div>
 
-      <fieldset class="basic">
-        <legend>기본 정보</legend>
-        <div class="row2">
-          <div><label class="label" for="ctx-grade">학년</label>
-            <select id="ctx-grade"><option value="">선택 안 함</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option><option value="4">4학년</option><option value="5">5학년</option><option value="6">6학년</option></select></div>
-          <div><label class="label" for="ctx-subject">교과</label>
-            <select id="ctx-subject" disabled><option value="">학년을 먼저 고르세요</option></select></div>
-        </div>
-        <div id="std-wrap" hidden>
-          <div class="std-head">
-            <span class="label" style="margin:0">성취기준 <span id="std-band"></span> (여러 개 고를 수 있음)</span>
-            <input type="search" id="std-search" placeholder="낱말·코드로 찾기" aria-label="성취기준 찾기">
-          </div>
-          <div id="std-chosen" class="std-chosen"></div>
-          <div id="std-list" class="std-list" role="group" aria-label="성취기준 목록"></div>
-          <p class="hint" style="margin:0">2022 개정 교육과정 성취기준입니다. 고른 성취기준과 지도안이 맞는지도 AI가 함께 점검합니다.</p>
-        </div>
-      </fieldset>
       <div><label class="label" for="ctx-note">특히 봐 줬으면 하는 점 (선택)</label><input type="text" id="ctx-note" placeholder="예: 느린 학습자 지원이 충분한지"></div>
 
       <div id="code-wrap" hidden><label class="label" for="ctx-code">접속 코드</label><input type="text" id="ctx-code" autocomplete="off" placeholder="연수 담당자에게 받은 코드"></div>
