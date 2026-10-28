@@ -378,7 +378,7 @@ async function analyze() {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `서버 오류가 발생했습니다 (${res.status}).`);
+    if (!res.ok) throw new Error((data.error || `서버 오류가 발생했습니다 (${res.status}).`) + (data.detail ? `\n[원인] ${data.detail}` : ''));
     use(runTool);
     tabs[runTool].result = normalize(data.result);
     ai.showResult = true;
