@@ -365,7 +365,10 @@ async function analyze() {
   ctl = new AbortController();
   $('btn-analyze').disabled = true; $('btn-stop').hidden = false;
   const t0 = Date.now();
-  const tick = () => showStatus(`AI가 ${TOOLS[runTool].tab} 점검표로 지도안을 진단하는 중입니다 · ${Math.round((Date.now() - t0) / 1000)}초`, 'busy');
+  const tick = () => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    showStatus(`AI가 ${TOOLS[runTool].tab} 점검표로 지도안을 진단하는 중입니다 · ${sec}초${sec >= 40 ? ' (Gemini가 붐벼서 다른 모델로 바꿔 시도하고 있을 수 있습니다)' : ''}`, 'busy');
+  };
   tick(); const timer = setInterval(tick, 1000);
   try {
     const res = await fetch('/api/analyze', {

@@ -2,11 +2,15 @@
 // API 키는 코드에 넣지 않습니다. Cloudflare 대시보드의 Secret(GEMINI_API_KEY)에서만 읽습니다.
 import { buildPrompt, LIMITS, TOOLS } from '../public/criteria.js';
 
-// GEMINI_MODEL 변수로 바꿀 수 있습니다. 지정한 모델이 없으면(404) 다음 후보로 넘어가고,
-// 후보가 모두 없으면 이 키로 쓸 수 있는 모델 목록을 받아 Flash 계열을 고릅니다.
-const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
+// GEMINI_MODEL 변수로 바꿀 수 있습니다. 모델이 없거나(404) 붐비거나(503) 사용량이 찼으면(429)
+// 다음 후보로 넘어가고, 후보를 다 써도 안 되면 이 키로 쓸 수 있는 모델 목록에서 더 찾아 시도합니다.
+const FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
 const API = 'https://generativelanguage.googleapis.com/v1beta';
-let discoveredModel = null; // 한 번 찾은 모델은 Worker가 살아 있는 동안 다시 씁니다.
+const TRY_NEXT = new Set([404, 429, 500, 503]);
+const RETRY_SAME = new Set([500, 503]);
+const DEADLINE_MS = 75000;
+let lastGoodModel = null; // 마지막으로 성공한 모델을 먼저 시도합니다(Worker가 살아 있는 동안).
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
@@ -65,14 +69,23 @@ async function analyze(request, env) {
     body: JSON.stringify(payload),
   });
   let res, used;
+  const tried = [];
   try {
-    for (const model of [env.GEMINI_MODEL, discoveredModel, ...FALLBACK_MODELS].filter(Boolean)) {
-      used = model; res = await call(model);
-      if (res.status !== 404) break;
-    }
-    if (res.status === 404) {
-      const found = await findModel(env.GEMINI_API_KEY);
-      if (found) { discoveredModel = used = found; res = await call(found); }
+    const queue = [...new Set([env.GEMINI_MODEL, lastGoodModel, ...FALLBACK_MODELS].filter(Boolean))];
+    let listed = false;
+    const started = Date.now();
+    while (queue.length && Date.now() - started < DEADLINE_MS) {
+      used = queue.shift();
+      if (tried.includes(used)) continue;
+      tried.push(used);
+      res = await call(used);
+      if (RETRY_SAME.has(res.status)) { await sleep(1500); res = await call(used); } // 잠깐 붐비는 경우 한 번 더
+      if (res.ok) { lastGoodModel = used; break; }
+      if (!TRY_NEXT.has(res.status)) break; // 키 오류 등은 다른 모델로 바꿔도 같으므로 멈춤
+      if (!queue.length && !listed) {
+        listed = true;
+        queue.push(...(await listModels(env.GEMINI_API_KEY)).filter((m) => !tried.includes(m)).slice(0, 4));
+      }
     }
   } catch (e) {
     console.log('Gemini fetch failed', String(e));
@@ -84,15 +97,15 @@ async function analyze(request, env) {
     let g = {};
     try { g = JSON.parse(raw).error || {}; } catch {}
     // 화면에 원인을 보여 줍니다(키 값은 들어 있지 않음).
-    const detail = `Gemini ${res.status}${g.status ? ' ' + g.status : ''} · 모델 ${used}${g.message ? ' · ' + String(g.message).slice(0, 200) : ''}`;
+    const detail = `Gemini ${res.status}${g.status ? ' ' + g.status : ''} · 모델 ${used}${tried.length > 1 ? ` (시도한 모델 ${tried.length}개: ${tried.join(', ')})` : ''}${g.message ? ' · ' + String(g.message).slice(0, 200) : ''}`;
     console.log('Gemini error', detail, raw.slice(0, 500));
     const msg = String(g.message || '');
-    if (res.status === 429) return json({ error: '요청이 많거나 무료 사용량을 다 써서 잠시 막혔습니다. 1분쯤 뒤에 다시 시도해 주세요.', detail }, 429);
+    if (res.status === 429) return json({ error: '요청이 많거나 무료 사용량을 다 써서 잠시 막혔습니다. 1분쯤 뒤에 다시 시도해 주세요. 계속되면 오늘 무료 사용량을 다 쓴 것일 수 있습니다.', detail }, 429);
     if (/API key/i.test(msg) || res.status === 401) return json({ error: '서버의 Gemini API 키가 올바르지 않습니다. Cloudflare의 GEMINI_API_KEY 값을 다시 확인해 주세요.', detail }, 500);
     if (/location is not supported/i.test(msg)) return json({ error: '지금 접속한 지역의 서버에서는 Gemini API를 쓸 수 없습니다. 관리자에게 알려 주세요.', detail }, 502);
     if (res.status === 403) return json({ error: '이 API 키로는 Gemini를 쓸 권한이 없습니다. Google AI Studio에서 키 설정을 확인해 주세요.', detail }, 500);
     if (res.status === 404) return json({ error: '이 API 키로 쓸 수 있는 Gemini 모델을 찾지 못했습니다.', detail }, 502);
-    if (res.status === 503 || res.status === 500) return json({ error: 'Gemini 서버가 바쁩니다. 잠시 뒤 다시 시도해 주세요.', detail }, 502);
+    if (res.status === 503 || res.status === 500) return json({ error: '지금 쓸 수 있는 Gemini 모델이 모두 붐빕니다. 1~2분 뒤 다시 시도해 주세요.', detail }, 502);
     return json({ error: 'AI 분석 중 문제가 생겼습니다. 다시 시도해 주세요.', detail }, 502);
   }
 
@@ -117,20 +130,19 @@ function parseJson(s) {
   return null;
 }
 
-// 이 키로 generateContent를 쓸 수 있는 모델 중 최신 Flash 계열을 고릅니다.
-async function findModel(key) {
+// 이 키로 generateContent를 쓸 수 있는 모델을 Flash 계열·최신 순으로 돌려줍니다.
+async function listModels(key) {
   try {
     const r = await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
-    if (!r.ok) return null;
+    if (!r.ok) return [];
     const names = ((await r.json()).models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m) => String(m.name).replace(/^models\//, ''))
       .filter((n) => /^gemini-/.test(n) && !/(image|tts|audio|live|embed|vision|thinking-exp|robotics|computer)/.test(n));
     const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
     const rank = (n) => (/flash/.test(n) ? 2 : /pro/.test(n) ? 1 : 0) * 100 + ver(n) * 10 - (/lite/.test(n) ? 5 : 0) - (/preview|exp/.test(n) ? 1 : 0);
-    names.sort((a, b) => rank(b) - rank(a));
-    return names[0] || null;
+    return names.sort((a, b) => rank(b) - rank(a));
   } catch {
-    return null;
+    return [];
   }
 }
