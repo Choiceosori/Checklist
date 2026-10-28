@@ -1,5 +1,4 @@
 import { TOOLS, TOOL_ORDER, LIMITS } from './criteria.js';
-import { STANDARDS, bandOf, STANDARD_BY_CODE } from './standards.js';
 const SAMPLE_PLAN = `[예시] 교수·학습 과정안
 교과: 과학 / 대상: 초등학교 5학년 2반 (24명) / 차시: 3/8차시 (40분)
 단원: 3. 날씨와 우리 생활
@@ -43,7 +42,7 @@ const INPUT_IDS = ['plan-text', 'ctx-grade', 'ctx-subject', 'ctx-note'];
 const emptySelf = (tool) => Object.fromEntries(tool.items.map((i) => [i.id, 0]));
 const freshTab = (id) => ({ self: emptySelf(TOOLS[id]), memo: {}, showResult: false, result: null });
 let tabs = Object.fromEntries(TOOL_ORDER.map((id) => [id, freshTab(id)]));
-let ai = { tool: TOOL_ORDER[TOOL_ORDER.length - 1], showResult: false, inputs: {}, std: [] }; // std: 고른 성취기준 코드
+let ai = { tool: TOOL_ORDER[TOOL_ORDER.length - 1], showResult: false, inputs: {} };
 let view = TOOL_ORDER[0];
 let attachments = [];  // AI 검증 탭의 [{name, mimeType, data(base64), size}] PDF·이미지는 원본 그대로 AI에게 보냅니다
 let ctl = null;
@@ -325,50 +324,6 @@ function selfReportText() {
   return t;
 }
 
-/* ---------- 기본 정보: 학년 · 교과 · 성취기준 ---------- */
-const MAX_STD = 8;
-function renderSubjects() {
-  const g = Number($('ctx-grade').value), sel = $('ctx-subject'), prev = sel.value;
-  if (!g) { sel.innerHTML = '<option value="">학년을 먼저 고르세요</option>'; sel.disabled = true; }
-  else {
-    const subjects = Object.keys(STANDARDS[bandOf(g)]);
-    sel.innerHTML = '<option value="">교과 선택</option>' + subjects.map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
-    sel.disabled = false;
-    if (subjects.includes(prev)) sel.value = prev;
-  }
-  renderStdList();
-}
-function renderStdList() {
-  const g = Number($('ctx-grade').value), subj = $('ctx-subject').value;
-  const list = g && subj ? (STANDARDS[bandOf(g)][subj] || []) : [];
-  const sel = $('std-select');
-  $('std-band').textContent = list.length ? `· ${bandOf(g).replace('-', '~')}학년군 ${subj} ${list.length}개` : '';
-  if (!list.length) {
-    sel.innerHTML = `<option value="">${g ? '교과를 먼저 고르세요' : '학년과 교과를 먼저 고르세요'}</option>`;
-    sel.disabled = true;
-  } else {
-    // 영역별로 묶은 드롭다운. 이미 고른 성취기준은 앞에 ✓ 표시
-    let h = '<option value="">성취기준 고르기</option>', area = '';
-    for (const [c, a, t] of list) {
-      if (a !== area) { if (area) h += '</optgroup>'; area = a; h += `<optgroup label="${esc(a)}">`; }
-      h += `<option value="${c}">${ai.std.includes(c) ? '✓ ' : ''}[${c}] ${esc(t)}</option>`;
-    }
-    sel.innerHTML = h + '</optgroup>';
-    sel.disabled = false;
-  }
-  renderChosen();
-}
-function renderChosen() {
-  $('std-chosen').innerHTML = ai.std.map((c) => `<li><code>[${c}]</code><span>${esc(STANDARD_BY_CODE[c]?.text || '')}</span><button type="button" data-unstd="${c}" aria-label="[${c}] 빼기">✕</button></li>`).join('');
-}
-function toggleStd(code, on) {
-  if (on && !ai.std.includes(code)) {
-    if (ai.std.length >= MAX_STD) { toast(`성취기준은 ${MAX_STD}개까지 고를 수 있습니다.`); renderStdList(); return; }
-    ai.std.push(code);
-  } else if (!on) ai.std = ai.std.filter((c) => c !== code);
-  renderStdList(); saveLocal();
-}
-
 /* ---------- AI 검증 탭 ---------- */
 function renderPick() {
   $('tool-pick').innerHTML = TOOL_ORDER.map((id) => {
@@ -395,7 +350,6 @@ function normalize(r) {
   return {
     lesson: { title: String(L.title || '제목 없는 지도안'), subject: String(L.subject || ''), grade: String(L.grade || ''), aiTools: Array.isArray(L.aiTools) ? L.aiTools.map(String).filter(Boolean) : [] },
     overall: String(r.overall || ''),
-    standardsFit: String(r.standardsFit || ''),
     strengths: Array.isArray(r.strengths) ? r.strengths.map(String) : [],
     priorities: Array.isArray(r.priorities) ? r.priorities.map(String) : [],
     items,
@@ -419,15 +373,14 @@ async function analyze() {
       headers: { 'content-type': 'application/json' },
       signal: ctl.signal,
       body: JSON.stringify({
-        tool: runTool, text, grade: $('ctx-grade').value ? `초등학교 ${$('ctx-grade').value}학년` : '', subject: $('ctx-subject').value, note: $('ctx-note').value,
-        standards: ai.std,
+        tool: runTool, text, grade: $('ctx-grade').value, subject: $('ctx-subject').value, note: $('ctx-note').value,
         code: $('ctx-code').value, files: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `서버 오류가 발생했습니다 (${res.status}).`);
     use(runTool);
-    tabs[runTool].result = { ...normalize(data.result), standards: [...ai.std] };
+    tabs[runTool].result = normalize(data.result);
     ai.showResult = true;
     hideStatus();
     renderAll(); saveLocal();
@@ -492,12 +445,6 @@ function renderAiResult() {
     </div>
   </div>`;
 
-  const usedStd = (r.standards || []).filter((c) => STANDARD_BY_CODE[c]);
-  if (usedStd.length) {
-    h += `<div class="panel fit"><h3>고른 성취기준과의 연결</h3>
-      <ul>${usedStd.map((c) => `<li><code>[${c}]</code>${esc(STANDARD_BY_CODE[c].text)}</li>`).join('')}</ul>
-      ${r.standardsFit ? `<p>${esc(r.standardsFit)}</p>` : ''}</div>`;
-  }
   h += `<div class="panel reflect"><h3>돌아볼 점</h3>`;
   if (!hasSelf) {
     h += `<p>${esc(T.tab)} 자기 평가를 아직 하지 않아 AI 진단만 보여 줍니다. 자기 평가를 마치면 이 화면에 내 점수와 AI 점수가 나란히 나옵니다.</p>
@@ -569,8 +516,6 @@ function reportText() {
   if (r.lesson.aiTools.length) t += `- 활용 도구: ${r.lesson.aiTools.join(', ')}\n`;
   t += hasSelf ? `- 평균: 자기 평가 ${avg(all, me).toFixed(1)} / AI 진단 ${fmt(aiAvg(all, sc))} (5점 만점)\n\n` : `- AI 진단 평균: ${fmt(aiAvg(all, sc))} / 5.0 (자기 평가 전)\n\n`;
   t += `## 단계별 평균${hasSelf ? ' (나 / AI)' : ' (AI)'}\n` + T.stages.map((s) => `- ${s.name}: ${hasSelf ? avg(stageIds(s.key), me).toFixed(1) + ' / ' : ''}${fmt(aiAvg(stageIds(s.key), sc))}`).join('\n') + '\n\n';
-  const usedStd = (r.standards || []).filter((c) => STANDARD_BY_CODE[c]);
-  if (usedStd.length) t += `## 고른 성취기준\n` + usedStd.map((c) => `- [${c}] ${STANDARD_BY_CODE[c].text}`).join('\n') + '\n' + (r.standardsFit ? `\n${r.standardsFit}\n` : '') + '\n';
   if (r.overall) t += `## 종합 의견\n${r.overall}\n\n`;
   if (r.strengths.length) t += `## 잘된 점\n` + r.strengths.map((s, i) => `${i + 1}. ${s}`).join('\n') + '\n\n';
   if (r.priorities.length) t += `## 먼저 고칠 점\n` + r.priorities.map((s, i) => `${i + 1}. ${s}`).join('\n') + '\n\n';
@@ -665,9 +610,8 @@ $('ai-result').addEventListener('click', async (ev) => {
   else if (ev.target.closest('#btn-restart')) $('restart-confirm').hidden = false;
   else if (ev.target.closest('#btn-restart-no')) $('restart-confirm').hidden = true;
   else if (ev.target.closest('#btn-restart-yes')) {
-    state.result = null; ai.showResult = false; ai.std = [];
+    state.result = null; ai.showResult = false;
     for (const id of INPUT_IDS) $(id).value = '';
-    renderSubjects();
     clearAttachments(); renderChip(); setHint(''); updateCount();
     saveLocal(); renderAll(); window.scrollTo({ top: 0 });
   }
@@ -681,20 +625,12 @@ const drop = $('drop');
 drop.addEventListener('drop', async (e) => { for (const f of e.dataTransfer.files) await handleFile(f); });
 $('file-clear').addEventListener('click', () => { clearAttachments(); renderChip(); setHint(''); });
 $('plan-text').addEventListener('input', () => { updateCount(); saveLocal(); });
-for (const id of ['ctx-note', 'ctx-code']) $(id).addEventListener('change', saveLocal);
-$('ctx-grade').addEventListener('change', () => { renderSubjects(); saveLocal(); });
-$('ctx-subject').addEventListener('change', () => { renderStdList(); saveLocal(); });
-$('std-select').addEventListener('change', (ev) => {
-  const c = ev.target.value;
-  if (c) toggleStd(c, !ai.std.includes(c)); // 고른 것을 다시 고르면 뺍니다
-});
-$('std-chosen').addEventListener('click', (ev) => { const b = ev.target.closest('[data-unstd]'); if (b) toggleStd(b.dataset.unstd, false); });
+for (const id of ['ctx-grade', 'ctx-subject', 'ctx-note', 'ctx-code']) $(id).addEventListener('change', saveLocal);
 $('btn-analyze').addEventListener('click', analyze);
 $('btn-stop').addEventListener('click', () => ctl?.abort());
 $('btn-sample').addEventListener('click', () => {
   $('plan-text').value = SAMPLE_PLAN; clearAttachments(); renderChip(); setHint('');
-  $('ctx-grade').value = '5'; renderSubjects(); $('ctx-subject').value = '과학'; $('ctx-note').value = '';
-  ai.std = ['6과06-01']; renderStdList();
+  $('ctx-grade').value = '초등학교 5학년'; $('ctx-subject').value = '과학'; $('ctx-note').value = '';
   updateCount(); saveLocal(); $('plan-text').focus();
 });
 
@@ -710,12 +646,7 @@ if (saved) {
 }
 const fromHash = location.hash.slice(1);
 view = (fromHash === 'ai' || TOOLS[fromHash]) ? fromHash : ((saved?.view === 'ai' || TOOLS[saved?.view]) ? saved.view : TOOL_ORDER[0]);
-for (const k of ['plan-text', 'ctx-note']) $(k).value = ai.inputs?.[k] || '';
-ai.std = (ai.std || []).filter((c) => STANDARD_BY_CODE[c]);
-$('ctx-grade').value = /^[1-6]$/.test(ai.inputs?.['ctx-grade'] || '') ? ai.inputs['ctx-grade'] : '';
-renderSubjects();
-$('ctx-subject').value = ai.inputs?.['ctx-subject'] || '';
-renderStdList();
+for (const k of INPUT_IDS) $(k).value = ai.inputs?.[k] || '';
 updateCount();
 renderAll();
 fetch('/api/config').then((r) => r.json()).then((c) => { $('code-wrap').hidden = !c.needCode; }).catch(() => {});
