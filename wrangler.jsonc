@@ -8,6 +8,9 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  // Gemini API는 일부 지역(예: 홍콩)에서 오는 호출을 막습니다("User location is not supported").
+  // 그래서 /api 를 처리하는 Worker를 Gemini가 지원되는 미국 중부(Google Cloud us-central1) 근처에서 실행합니다.
+  "placement": { "mode": "targeted", "region": "gcp:us-central1" },
   "observability": { "enabled": true }
   // GEMINI_API_KEY, ACCESS_CODE 는 여기에 쓰지 마세요. Cloudflare 대시보드 > Settings > Variables and Secrets 에서 Secret으로 넣습니다.
 }
