@@ -1,5 +1,6 @@
 // Cloudflare Worker: 정적 화면(public/)을 내보내고, /api/analyze 에서 Gemini API를 호출합니다.
 // API 키는 코드에 넣지 않습니다. Cloudflare 대시보드의 Secret(GEMINI_API_KEY)에서만 읽습니다.
+import { DurableObject } from 'cloudflare:workers';
 import { buildPrompt, LIMITS, TOOLS } from '../public/criteria.js';
 
 // GEMINI_MODEL 변수로 바꿀 수 있습니다. 모델이 없거나(404) 붐비거나(503) 사용량이 찼으면(429)
@@ -11,6 +12,23 @@ const RETRY_SAME = new Set([500, 503]);
 const DEADLINE_MS = 75000;
 let lastGoodModel = null; // 마지막으로 성공한 모델을 먼저 시도합니다(Worker가 살아 있는 동안).
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Gemini API는 일부 지역(예: 홍콩)에서 오는 호출을 "User location is not supported"로 막습니다.
+// Cloudflare는 방문자와 가까운 곳에서 Worker를 실행하므로, Google 호출은 미국 동부에 고정한
+// Durable Object(GeminiProxy)를 거쳐 보냅니다. Durable Object는 처음 만들어진 지역에 머뭅니다.
+export class GeminiProxy extends DurableObject {
+  async send(url, init) {
+    const r = await fetch(url, init);
+    return { status: r.status, body: await r.text(), colo: this.colo };
+  }
+}
+const PROXY_NAME = 'gemini-us-east-v1'; // 이름을 바꾸면 새 Durable Object가 새 위치 힌트로 만들어집니다.
+async function gfetch(env, url, init = {}) {
+  if (!env.GEMINI_PROXY) return fetch(url, init); // Pages 배포 등 바인딩이 없을 때
+  const stub = env.GEMINI_PROXY.get(env.GEMINI_PROXY.idFromName(PROXY_NAME), { locationHint: 'enam' });
+  const { status, body } = await stub.send(url, init);
+  return new Response(body, { status });
+}
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
@@ -63,7 +81,7 @@ async function analyze(request, env) {
     generationConfig: { responseMimeType: 'application/json' },
   };
 
-  const call = (model) => fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, {
+  const call = (model) => gfetch(env, `${API}/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify(payload),
@@ -84,7 +102,7 @@ async function analyze(request, env) {
       if (!TRY_NEXT.has(res.status)) break; // 키 오류 등은 다른 모델로 바꿔도 같으므로 멈춤
       if (!queue.length && !listed) {
         listed = true;
-        queue.push(...(await listModels(env.GEMINI_API_KEY)).filter((m) => !tried.includes(m)).slice(0, 4));
+        queue.push(...(await listModels(env)).filter((m) => !tried.includes(m)).slice(0, 4));
       }
     }
   } catch (e) {
@@ -131,9 +149,9 @@ function parseJson(s) {
 }
 
 // 이 키로 generateContent를 쓸 수 있는 모델을 Flash 계열·최신 순으로 돌려줍니다.
-async function listModels(key) {
+async function listModels(env) {
   try {
-    const r = await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
+    const r = await gfetch(env, `${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': env.GEMINI_API_KEY } });
     if (!r.ok) return [];
     const names = ((await r.json()).models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
