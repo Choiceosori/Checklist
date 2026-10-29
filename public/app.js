@@ -367,9 +367,11 @@ async function analyze() {
   const t0 = Date.now();
   const tick = () => {
     const sec = Math.round((Date.now() - t0) / 1000);
-    showStatus(`AI가 ${TOOLS[runTool].tab} 점검표로 지도안을 진단하는 중입니다 · ${sec}초${sec >= 40 ? ' (Gemini가 붐벼서 다른 모델로 바꿔 시도하고 있을 수 있습니다)' : ''}`, 'busy');
+    showStatus(`AI가 ${TOOLS[runTool].tab} 점검표로 지도안을 진단하는 중입니다 · ${sec}초${sec >= 50 ? ' (응답이 늦어 다른 모델로 바꿔 시도하는 중일 수 있습니다. 최대 90초)' : ''}`, 'busy');
   };
   tick(); const timer = setInterval(tick, 1000);
+  let timedOut = false;
+  const hardStop = setTimeout(() => { timedOut = true; ctl?.abort(); }, 110000); // 서버가 90초 안에 끝내지만 혹시 몰라 화면도 멈춤
   try {
     const res = await fetch('/api/analyze', {
       method: 'POST',
@@ -389,10 +391,11 @@ async function analyze() {
     renderAll(); saveLocal();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (e) {
-    if (e.name === 'AbortError') hideStatus();
+    if (e.name === 'AbortError' && timedOut) showStatus('AI 분석이 너무 오래 걸려 멈췄습니다. 잠시 뒤 다시 시도해 주세요. 지도안이 길면 핵심 부분만 남겨 보세요.', 'err');
+    else if (e.name === 'AbortError') hideStatus();
     else showStatus(e.message === 'Failed to fetch' ? '서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.' : e.message, 'err');
   } finally {
-    clearInterval(timer); ctl = null;
+    clearInterval(timer); clearTimeout(hardStop); ctl = null;
     $('btn-analyze').disabled = false; $('btn-stop').hidden = true;
   }
 }
